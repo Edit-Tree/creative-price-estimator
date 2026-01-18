@@ -1,0 +1,14 @@
+{
+    "name": "azure-functions-api",
+    "version": "1.0.0",
+    "description": "Backend API for Gemini Proxy",
+    "main": "src/functions/generateContent.js",
+    "scripts": {
+        "start": "func start",
+        "test": "echo \"No tests yet...\""
+    },
+    "dependencies": {
+        "@azure/functions": "^4.0.0",
+        "@google/genai": "^1.37.0"
+    }
+}

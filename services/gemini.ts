@@ -1,9 +1,21 @@
+import { Type } from "@google/genai";
+import { PricingSettings, ServiceRate, EstimateResponse, HistoryItem, InvoiceInsight, Brand, WorkLog } from "../types";
 
-import { GoogleGenAI, Type } from "@google/genai";
-import { PricingSettings, ServiceRate, EstimateResponse, HistoryItem, InvoiceInsight, Brand, WorkLog, BillingModel } from "../types";
+// Helper to call our Azure Function Proxy
+async function generateContentProxy(payload: { model: string; contents: any[]; config?: any }) {
+  const response = await fetch('/api/generateContent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
 
-// Always use const ai = new GoogleGenAI({apiKey: process.env.API_KEY}); strictly as per guidelines
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`API Request Failed: ${response.status} ${response.statusText} - ${errText}`);
+  }
+
+  return response.json();
+}
 
 const ESTIMATE_SCHEMA = {
   type: Type.OBJECT,
@@ -52,7 +64,8 @@ export async function analyzeHistoricalWork(
   globalRates: ServiceRate[],
   periodMonths: number = 1
 ): Promise<Partial<WorkLog> & { totalSheetRevenue: number }> {
-  const model = 'gemini-3-pro-preview';
+  const modelName = 'gemini-2.0-flash';
+
   const systemInstruction = `
     You are an Agency Audit Expert. The user is pasting a Spreadsheet/Table of work done for brand: ${brand.name}.
     
@@ -82,8 +95,8 @@ export async function analyzeHistoricalWork(
     Return a valid JSON object.
   `;
 
-  const response = await ai.models.generateContent({
-    model,
+  const response = await generateContentProxy({
+    model: modelName,
     contents: [{ parts: [{ text: `User Spreadsheet Data: \n${input}` }] }],
     config: {
       systemInstruction,
@@ -129,8 +142,8 @@ export async function estimatePricing(
   image?: { data: string; mimeType: string },
   brand?: Brand
 ): Promise<EstimateResponse> {
-  const model = 'gemini-3-flash-preview';
-  
+  const model = 'gemini-2.0-flash';
+
   const effectiveRates = brand ? [...brand.learnedRates, ...currentRates.filter(r => !brand.learnedRates.find(bl => bl.name === r.name))] : currentRates;
 
   const systemInstruction = `
@@ -143,7 +156,7 @@ export async function estimatePricing(
   const parts: any[] = [{ text: `Scope: ${snippet}` }];
   if (image) parts.push({ inlineData: { data: image.data, mimeType: image.mimeType } });
 
-  const response = await ai.models.generateContent({
+  const response = await generateContentProxy({
     model,
     contents: [{ parts }],
     config: {
@@ -162,30 +175,32 @@ export async function analyzeInvoice(
   input: string,
   file?: { data: string; mimeType: string }
 ): Promise<InvoiceInsight[]> {
-  const model = 'gemini-3-flash-preview';
+  const model = 'gemini-2.0-flash';
   const systemInstruction = `Extract standard rates from invoices. Generalize names (e.g. ignore dates/weeks). Detect currency.`;
 
   const parts: any[] = [{ text: `Invoice: ${input}` }];
   if (file) parts.push({ inlineData: { data: file.data, mimeType: file.mimeType } });
 
-  const response = await ai.models.generateContent({
+  const response = await generateContentProxy({
     model,
     contents: [{ parts }],
-    config: { systemInstruction, responseMimeType: "application/json", responseSchema: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          detectedName: { type: Type.STRING },
-          detectedCategory: { type: Type.STRING, enum: ["Design", "Video", "Motion", "Strategy", "Other"] },
-          detectedRate: { type: Type.NUMBER },
-          detectedCurrency: { type: Type.STRING, enum: ["INR", "EUR", "USD"] },
-          detectedUnit: { type: Type.STRING },
-          confidence: { type: Type.NUMBER },
-          sourceLabel: { type: Type.STRING }
+    config: {
+      systemInstruction, responseMimeType: "application/json", responseSchema: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            detectedName: { type: Type.STRING },
+            detectedCategory: { type: Type.STRING, enum: ["Design", "Video", "Motion", "Strategy", "Other"] },
+            detectedRate: { type: Type.NUMBER },
+            detectedCurrency: { type: Type.STRING, enum: ["INR", "EUR", "USD"] },
+            detectedUnit: { type: Type.STRING },
+            confidence: { type: Type.NUMBER },
+            sourceLabel: { type: Type.STRING }
+          }
         }
       }
-    } }
+    }
   });
 
   return JSON.parse(response.text || '[]').map((item: any) => ({ ...item, id: crypto.randomUUID() }));
