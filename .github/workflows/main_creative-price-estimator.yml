@@ -51,5 +51,6 @@ jobs:
         with:
           app-name: 'creative-price-estimator'
           slot-name: 'Production'
-          package: .
+          package: dist
+
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_072686D91F8D491CB9BCC11C035F7BF1 }}
